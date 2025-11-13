@@ -1,5 +1,5 @@
 # ==============================================================
-#            FINAL STABLE STREAMLIT APP (HEATMAP FIXED)
+#              FINAL STREAMLIT APP (NO HEATMAP)
 # ==============================================================
 
 import streamlit as st
@@ -23,7 +23,7 @@ from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
 st.set_page_config(page_title="Census Dashboard", layout="wide")
 
 # --------------------------------------------------------------
-# SIDEBAR NAVIGATION
+# SIDEBAR
 # --------------------------------------------------------------
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
@@ -32,7 +32,7 @@ page = st.sidebar.radio(
 )
 
 # --------------------------------------------------------------
-# PAGE 1 — UPLOAD
+# PAGE 1 — UPLOAD DATA
 # --------------------------------------------------------------
 if page == "Upload Data":
     st.title("📥 Upload Your Dataset")
@@ -46,12 +46,12 @@ if page == "Upload Data":
             st.success("Dataset uploaded successfully!")
             st.dataframe(df.head())
         except Exception as e:
-            st.error(f"Error reading CSV file: {e}")
+            st.error(f"Error reading CSV: {e}")
     else:
         st.info("Please upload a CSV file to continue.")
 
 # --------------------------------------------------------------
-# LOAD DF SAFELY
+# SAFELY LOAD DF
 # --------------------------------------------------------------
 df = st.session_state.get("df", None)
 
@@ -63,33 +63,13 @@ if df is not None:
     df = df.copy()
 
 # --------------------------------------------------------------
-# ULTRA-ROBUST NUMERIC DETECTION (works for ANY dataset)
+# BASIC COLUMN TYPE DETECTION
 # --------------------------------------------------------------
-
-def convert_to_numeric(series):
-    # Remove everything except digits, dot, minus
-    cleaned = series.astype(str).apply(lambda x: re.sub(r"[^0-9.\-]", "", x))
-    return pd.to_numeric(cleaned, errors="coerce")
-
-numeric_df = pd.DataFrame()
-numerics = []
-categoricals = []
-
-for col in df.columns:
-    try:
-        converted = convert_to_numeric(df[col])
-
-        # retain if numeric column has at least 5 valid values
-        if converted.count() >= 5:
-            numeric_df[col] = converted
-            numerics.append(col)
-        else:
-            categoricals.append(col)
-    except:
-        categoricals.append(col)
+numerics = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+categoricals = df.select_dtypes(include=['object', 'bool', 'category']).columns.tolist()
 
 # --------------------------------------------------------------
-# PAGE 2 — EDA
+# PAGE 2 — EDA (without heatmap)
 # --------------------------------------------------------------
 if page == "EDA" and df is not None:
     st.title("📊 Exploratory Data Analysis")
@@ -100,53 +80,34 @@ if page == "EDA" and df is not None:
 
     st.write(f"**Rows:** {df.shape[0]} | **Columns:** {df.shape[1]}")
 
-    # Missing Values
+    # Missing values
     st.subheader("❗ Missing Values")
+    mv = df.isna().sum().reset_index()
+    mv.columns = ["Column", "Missing Count"]
+    st.dataframe(mv)
 
-    try:
-        mv = df.isna().sum().reset_index()
-        mv.columns = ["Column", "Missing Count"]
-        st.dataframe(mv)
-    except Exception as e:
-        st.error(f"Missing values error: {e}")
-
-    # Summary
+    # Summary statistics
     st.subheader("📊 Summary Statistics")
-
     if numerics:
-        st.dataframe(numeric_df[numerics].describe().T)
+        st.dataframe(df[numerics].describe().T)
     else:
-        st.warning("No numeric columns detected.")
+        st.warning("No numeric columns found.")
 
-    # Distribution
+    # Distribution plot
     if numerics:
         st.subheader("📈 Distribution Plot")
-        col = st.selectbox("Select Numeric Column", numerics)
+        col = st.selectbox("Select numeric column", numerics)
         fig, ax = plt.subplots()
-        sns.histplot(numeric_df[col], kde=True, ax=ax)
+        sns.histplot(df[col], kde=True, ax=ax)
         st.pyplot(fig)
 
     # Categorical plot
     if categoricals:
         st.subheader("📊 Categorical Value Counts")
-        col = st.selectbox("Select Categorical Column", categoricals)
+        col = st.selectbox("Select categorical column", categoricals)
         fig, ax = plt.subplots()
         df[col].value_counts(dropna=False).plot(kind="bar", ax=ax)
         st.pyplot(fig)
-
-    # Heatmap
-    st.subheader("🔥 Correlation Heatmap (Guaranteed Working)")
-
-    if len(numerics) < 2:
-        st.warning("Not enough numeric columns for a correlation heatmap.")
-    else:
-        try:
-            corr = numeric_df[numerics].corr()
-            fig, ax = plt.subplots(figsize=(12, 7))
-            sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
-            st.pyplot(fig)
-        except Exception as e:
-            st.error(f"Heatmap error: {e}")
 
 # --------------------------------------------------------------
 # PAGE 3 — OUTLIER DETECTION
@@ -155,27 +116,27 @@ if page == "Outlier Detection" and df is not None:
     st.title("🚨 Outlier Detection (IQR Method)")
 
     if not numerics:
-        st.warning("No numeric columns available.")
+        st.warning("No numeric columns found.")
         st.stop()
 
-    col = st.selectbox("Select Numeric Column", numerics)
+    col = st.selectbox("Select numeric column", numerics)
 
-    Q1 = numeric_df[col].quantile(0.25)
-    Q3 = numeric_df[col].quantile(0.75)
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
     IQR = Q3 - Q1
 
-    lower = Q1 - 1.5 * IQR
+    lower = Q1 - 1.5 * IIQR
     upper = Q3 + 1.5 * IQR
 
-    st.write(f"Lower Bound = {lower}")
-    st.write(f"Upper Bound = {upper}")
+    st.write(f"Lower Bound: {lower}")
+    st.write(f"Upper Bound: {upper}")
 
-    outliers = df[(numeric_df[col] < lower) | (numeric_df[col] > upper)]
-    st.write(f"Outliers Found: **{outliers.shape[0]}**")
+    outliers = df[(df[col] < lower) | (df[col] > upper)]
+    st.write(f"Outliers Found: {outliers.shape[0]}")
     st.dataframe(outliers.head())
 
     fig, ax = plt.subplots()
-    sns.boxplot(x=numeric_df[col], ax=ax)
+    sns.boxplot(x=df[col], ax=ax)
     st.pyplot(fig)
 
 # --------------------------------------------------------------
@@ -184,16 +145,14 @@ if page == "Outlier Detection" and df is not None:
 if page == "ML Model" and df is not None:
     st.title("🤖 Machine Learning Model")
 
-    target = st.selectbox("Select Target Column", df.columns)
+    target = st.selectbox("Select target column", df.columns)
 
-    X = numeric_df.copy()
-    if target in X.columns:
-        X = X.drop(columns=[target])
-
+    X = df.drop(columns=[target])
     y = df[target]
 
-    num_cols = [c for c in numerics if c != target]
-    cat_cols = [c for c in categoricals if c in df.columns]
+    # Detect types
+    num_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    cat_cols = X.select_dtypes(include=['object', 'bool', 'category']).columns.tolist()
 
     # Preprocessor
     transformers = []
@@ -212,17 +171,15 @@ if page == "ML Model" and df is not None:
 
     preprocessor = ColumnTransformer(transformers)
 
-    model_type = st.radio("Select Model Type", ["Regression", "Classification"])
+    model_type = st.radio("Model Type", ["Regression", "Classification"])
 
-    # Train/test split
+    # Train-test split
     try:
         X_train, X_test, y_train, y_test = train_test_split(
-            pd.concat([numeric_df, df[cat_cols]], axis=1),
-            y,
-            test_size=0.2
+            X, y, test_size=0.2
         )
     except Exception as e:
-        st.error(f"Train-test split failed: {e}")
+        st.error(f"Train-test split error: {e}")
         st.stop()
 
     # Regression
@@ -251,7 +208,7 @@ if page == "ML Model" and df is not None:
         pipe = Pipeline([("pre", preprocessor), ("model", model)])
 
         pipe.fit(X_train, y_train)
-        preds = pipe.predict(X_test)
+        preds = pipeline.predict(X_test)
 
         st.subheader("📈 Classification Results")
         st.write("Accuracy:", round(accuracy_score(y_test, preds), 4))
