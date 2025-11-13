@@ -1,10 +1,9 @@
 # ==============================================================
-#          FINAL STREAMLIT APP (df safe load + no heatmap)
+#        FINAL STREAMLIT APP (NO HEATMAP, NO COPY ERROR)
 # ==============================================================
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -31,7 +30,7 @@ page = st.sidebar.radio(
 )
 
 # --------------------------------------------------------------
-# PAGE 1 — UPLOAD
+# PAGE 1 — UPLOAD DATA
 # --------------------------------------------------------------
 if page == "Upload Data":
     st.title("📥 Upload Your Dataset")
@@ -46,38 +45,33 @@ if page == "Upload Data":
             st.dataframe(df.head())
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
+
     else:
-        st.info("Please upload a CSV file to continue.")
+        st.info("Upload a CSV file to continue.")
 
 # --------------------------------------------------------------
-# SAFE LOAD DF (This *fixes your error*)
+# SAFE LOAD DF
 # --------------------------------------------------------------
-if page != "Upload Data":
-    if "df" not in st.session_state:
-        st.error("⚠ Please upload a dataset first.")
-        st.stop()
+if "df" in st.session_state:
+    df = st.session_state["df"]      # SAFE → df exists
+else:
+    df = None                        # df does NOT exist
 
-df = st.session_state.get("df")  # guaranteed not None here
-
-# Make a safe copy
-df = df.copy()
-
-# --------------------------------------------------------------
-# BASIC TYPE DETECTION
-# --------------------------------------------------------------
-numerics = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-categoricals = df.select_dtypes(include=['object', 'bool', 'category']).columns.tolist()
+# Protect other pages
+if page != "Upload Data" and df is None:
+    st.error("⚠ Please upload a dataset first.")
+    st.stop()
 
 # --------------------------------------------------------------
-# PAGE 2 — EDA  (NO HEATMAP)
+# PAGE 2 — EDA (NO HEATMAP)
 # --------------------------------------------------------------
-if page == "EDA":
+if page == "EDA" and df is not None:
     st.title("📊 Exploratory Data Analysis")
 
     st.subheader("Dataset Preview")
     st.dataframe(df.head())
 
-    st.write(f"**Rows:** {df.shape[0]} | **Columns:** {df.shape[1]}")
+    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
 
     # Missing values
     st.subheader("❗ Missing Values")
@@ -85,7 +79,11 @@ if page == "EDA":
     mv.columns = ["Column", "Missing Count"]
     st.dataframe(mv)
 
-    # Summary statistics
+    # Numeric and categorical detection
+    numerics = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categoricals = df.select_dtypes(include=['object', 'bool', 'category']).columns.tolist()
+
+    # Summary stats
     st.subheader("📊 Summary Statistics")
     if numerics:
         st.dataframe(df[numerics].describe().T)
@@ -100,7 +98,7 @@ if page == "EDA":
         sns.histplot(df[col], kde=True, ax=ax)
         st.pyplot(fig)
 
-    # Categorical plot
+    # Categorical bar plot
     if categoricals:
         st.subheader("📊 Categorical Value Counts")
         col = st.selectbox("Select categorical column", categoricals)
@@ -111,8 +109,10 @@ if page == "EDA":
 # --------------------------------------------------------------
 # PAGE 3 — OUTLIER DETECTION
 # --------------------------------------------------------------
-if page == "Outlier Detection":
+if page == "Outlier Detection" and df is not None:
     st.title("🚨 Outlier Detection (IQR Method)")
+
+    numerics = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
 
     if not numerics:
         st.warning("No numeric columns found.")
@@ -139,9 +139,9 @@ if page == "Outlier Detection":
     st.pyplot(fig)
 
 # --------------------------------------------------------------
-# PAGE 4 — ML MODEL
+# PAGE 4 — MACHINE LEARNING
 # --------------------------------------------------------------
-if page == "ML Model":
+if page == "ML Model" and df is not None:
     st.title("🤖 Machine Learning Model")
 
     target = st.selectbox("Select Target Column", df.columns)
@@ -181,7 +181,7 @@ if page == "ML Model":
     # Regression
     if model_type == "Regression":
         if not pd.api.types.is_numeric_dtype(y):
-            st.error("Target must be numeric for regression.")
+            st.error("Target must be numeric.")
             st.stop()
 
         model = RandomForestRegressor()
@@ -190,14 +190,14 @@ if page == "ML Model":
         pipe.fit(X_train, y_train)
         preds = pipe.predict(X_test)
 
-        st.subheader("📈 Regression Results")
-        st.write("R² Score:", round(r2_score(y_test, preds), 4))
-        st.write("RMSE:", round(mean_squared_error(y_test, preds)**0.5, 4))
+        st.subheader("Regression Results")
+        st.write("R² Score:", r2_score(y_test, preds))
+        st.write("RMSE:", mean_squared_error(y_test, preds)**0.5)
 
     # Classification
     else:
         if pd.api.types.is_numeric_dtype(y):
-            st.error("Target must be categorical for classification.")
+            st.error("Target must be categorical.")
             st.stop()
 
         model = RandomForestClassifier()
@@ -206,7 +206,7 @@ if page == "ML Model":
         pipe.fit(X_train, y_train)
         preds = pipe.predict(X_test)
 
-        st.subheader("📈 Classification Results")
-        st.write("Accuracy:", round(accuracy_score(y_test, preds), 4))
+        st.subheader("Classification Results")
+        st.write("Accuracy:", accuracy_score(y_test, preds))
 
-        st.success("Model training completed!")
+        st.success("Model trained successfully!")
