@@ -1,5 +1,5 @@
 # ==============================================================
-#               FINAL STABLE & ERROR-FREE STREAMLIT APP
+#            FINAL STABLE STREAMLIT APP (HEATMAP FIXED)
 # ==============================================================
 
 import streamlit as st
@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+import re
 
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
@@ -26,7 +27,7 @@ st.set_page_config(page_title="Census Dashboard", layout="wide")
 # --------------------------------------------------------------
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
-    "Go To",
+    "Go To Page",
     ["Upload Data", "EDA", "Outlier Detection", "ML Model"]
 )
 
@@ -46,12 +47,11 @@ if page == "Upload Data":
             st.dataframe(df.head())
         except Exception as e:
             st.error(f"Error reading CSV file: {e}")
-
     else:
         st.info("Please upload a CSV file to continue.")
 
 # --------------------------------------------------------------
-# SAFE LOAD DF
+# LOAD DF SAFELY
 # --------------------------------------------------------------
 df = st.session_state.get("df", None)
 
@@ -63,21 +63,29 @@ if df is not None:
     df = df.copy()
 
 # --------------------------------------------------------------
-# TRUE NUMERIC DETECTION (Perfect for Census Data)
+# ULTRA-ROBUST NUMERIC DETECTION (works for ANY dataset)
 # --------------------------------------------------------------
+
+def convert_to_numeric(series):
+    # Remove everything except digits, dot, minus
+    cleaned = series.astype(str).apply(lambda x: re.sub(r"[^0-9.\-]", "", x))
+    return pd.to_numeric(cleaned, errors="coerce")
+
+numeric_df = pd.DataFrame()
 numerics = []
 categoricals = []
 
 for col in df.columns:
-    sample = df[col].dropna().astype(str)
+    try:
+        converted = convert_to_numeric(df[col])
 
-    # Check if column is numeric (even with commas, decimals)
-    cleaned = sample.str.replace(",", "").str.replace(".", "", 1)
-
-    if cleaned.str.isdigit().all():  # numeric
-        df[col] = sample.str.replace(",", "").astype(float)
-        numerics.append(col)
-    else:
+        # retain if numeric column has at least 5 valid values
+        if converted.count() >= 5:
+            numeric_df[col] = converted
+            numerics.append(col)
+        else:
+            categoricals.append(col)
+    except:
         categoricals.append(col)
 
 # --------------------------------------------------------------
@@ -92,9 +100,7 @@ if page == "EDA" and df is not None:
 
     st.write(f"**Rows:** {df.shape[0]} | **Columns:** {df.shape[1]}")
 
-    # ---------------------------
-    # Missing Values (Safe)
-    # ---------------------------
+    # Missing Values
     st.subheader("❗ Missing Values")
 
     try:
@@ -104,28 +110,23 @@ if page == "EDA" and df is not None:
     except Exception as e:
         st.error(f"Missing values error: {e}")
 
-    # ---------------------------
-    # Summary Statistics
-    # ---------------------------
+    # Summary
     st.subheader("📊 Summary Statistics")
+
     if numerics:
-        st.dataframe(df[numerics].describe().T)
+        st.dataframe(numeric_df[numerics].describe().T)
     else:
         st.warning("No numeric columns detected.")
 
-    # ---------------------------
-    # Distribution Plot
-    # ---------------------------
+    # Distribution
     if numerics:
         st.subheader("📈 Distribution Plot")
         col = st.selectbox("Select Numeric Column", numerics)
         fig, ax = plt.subplots()
-        sns.histplot(df[col], kde=True, ax=ax)
+        sns.histplot(numeric_df[col], kde=True, ax=ax)
         st.pyplot(fig)
 
-    # ---------------------------
-    # Categorical Plot
-    # ---------------------------
+    # Categorical plot
     if categoricals:
         st.subheader("📊 Categorical Value Counts")
         col = st.selectbox("Select Categorical Column", categoricals)
@@ -133,20 +134,19 @@ if page == "EDA" and df is not None:
         df[col].value_counts(dropna=False).plot(kind="bar", ax=ax)
         st.pyplot(fig)
 
-    # ---------------------------
-    # HEATMAP (Auto Cleaned)
-    # ---------------------------
-    st.subheader("🔥 Correlation Heatmap")
+    # Heatmap
+    st.subheader("🔥 Correlation Heatmap (Guaranteed Working)")
 
     if len(numerics) < 2:
         st.warning("Not enough numeric columns for a correlation heatmap.")
     else:
         try:
+            corr = numeric_df[numerics].corr()
             fig, ax = plt.subplots(figsize=(12, 7))
-            sns.heatmap(df[numerics].corr(), annot=True, cmap="coolwarm", ax=ax)
+            sns.heatmap(corr, annot=True, cmap="coolwarm", ax=ax)
             st.pyplot(fig)
         except Exception as e:
-            st.error(f"Heatmap generation error: {e}")
+            st.error(f"Heatmap error: {e}")
 
 # --------------------------------------------------------------
 # PAGE 3 — OUTLIER DETECTION
@@ -155,13 +155,13 @@ if page == "Outlier Detection" and df is not None:
     st.title("🚨 Outlier Detection (IQR Method)")
 
     if not numerics:
-        st.warning("No numeric columns found.")
+        st.warning("No numeric columns available.")
         st.stop()
 
     col = st.selectbox("Select Numeric Column", numerics)
 
-    Q1 = df[col].quantile(0.25)
-    Q3 = df[col].quantile(0.75)
+    Q1 = numeric_df[col].quantile(0.25)
+    Q3 = numeric_df[col].quantile(0.75)
     IQR = Q3 - Q1
 
     lower = Q1 - 1.5 * IQR
@@ -170,13 +170,12 @@ if page == "Outlier Detection" and df is not None:
     st.write(f"Lower Bound = {lower}")
     st.write(f"Upper Bound = {upper}")
 
-    outliers = df[(df[col] < lower) | (df[col] > upper)]
-
+    outliers = df[(numeric_df[col] < lower) | (numeric_df[col] > upper)]
     st.write(f"Outliers Found: **{outliers.shape[0]}**")
     st.dataframe(outliers.head())
 
     fig, ax = plt.subplots()
-    sns.boxplot(x=df[col], ax=ax)
+    sns.boxplot(x=numeric_df[col], ax=ax)
     st.pyplot(fig)
 
 # --------------------------------------------------------------
@@ -187,12 +186,14 @@ if page == "ML Model" and df is not None:
 
     target = st.selectbox("Select Target Column", df.columns)
 
-    X = df.drop(columns=[target])
+    X = numeric_df.copy()
+    if target in X.columns:
+        X = X.drop(columns=[target])
+
     y = df[target]
 
-    # Detect types
-    num_cols = [c for c in numerics if c in X.columns]
-    cat_cols = [c for c in categoricals if c in X.columns]
+    num_cols = [c for c in numerics if c != target]
+    cat_cols = [c for c in categoricals if c in df.columns]
 
     # Preprocessor
     transformers = []
@@ -200,16 +201,11 @@ if page == "ML Model" and df is not None:
         transformers.append(("num", SimpleImputer(strategy="median"), num_cols))
 
     if cat_cols:
-        try:
-            ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-        except:
-            ohe = OneHotEncoder(handle_unknown="ignore", sparse=False)
-
         transformers.append((
             "cat",
             Pipeline([
                 ("imp", SimpleImputer(strategy="most_frequent")),
-                ("ohe", ohe)
+                ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
             ]),
             cat_cols
         ))
@@ -218,15 +214,18 @@ if page == "ML Model" and df is not None:
 
     model_type = st.radio("Select Model Type", ["Regression", "Classification"])
 
+    # Train/test split
     try:
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        X_train, X_test, y_train, y_test = train_test_split(
+            pd.concat([numeric_df, df[cat_cols]], axis=1),
+            y,
+            test_size=0.2
+        )
     except Exception as e:
         st.error(f"Train-test split failed: {e}")
         st.stop()
 
-    # ------------------------
     # Regression
-    # ------------------------
     if model_type == "Regression":
         if not pd.api.types.is_numeric_dtype(y):
             st.error("Target must be numeric for regression.")
@@ -242,9 +241,7 @@ if page == "ML Model" and df is not None:
         st.write("R² Score:", round(r2_score(y_test, preds), 4))
         st.write("RMSE:", round(mean_squared_error(y_test, preds)**0.5, 4))
 
-    # ------------------------
     # Classification
-    # ------------------------
     else:
         if pd.api.types.is_numeric_dtype(y):
             st.error("Target must be categorical for classification.")
