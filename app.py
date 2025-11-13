@@ -1,109 +1,220 @@
-# ------------------------------------------------------
-# SIMPLE + CLEAN STREAMLIT DASHBOARD FOR ANY DATASET
-# ------------------------------------------------------
+# ============================================================
+#     FINAL — CLEAN, ERROR-FREE STREAMLIT ANALYTICS APP
+# ============================================================
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Simple Census Data Dashboard", layout="wide")
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
 
-# ------------------------------------------------------
-# Page Title
-# ------------------------------------------------------
-st.title("📊 Simple Data Exploration Dashboard")
+# ============================================================
+# UI CONFIG (Dark Theme + Wide Layout)
+# ============================================================
+st.set_page_config(
+    page_title="Census Data Dashboard",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.write("""
-This is a **clean and simple Streamlit dashboard**  
-to explore your dataset without complexity.
-""")
+st.markdown("""
+<style>
+body {background-color: #0E1117; color: white;}
+.stApp {background-color: #0E1117;}
+</style>
+""", unsafe_allow_html=True)
 
-# ------------------------------------------------------
-# Upload Section
-# ------------------------------------------------------
-uploaded_file = st.file_uploader("📥 Upload CSV File", type=["csv"])
+# ============================================================
+# SIDEBAR NAVIGATION
+# ============================================================
+st.sidebar.title("📌 Navigation")
+page = st.sidebar.radio(
+    "Choose Page",
+    ["Upload Data", "EDA", "Outlier Detection", "ML Model"]
+)
 
-if uploaded_file is None:
-    st.info("Please upload your dataset to start.")
-    st.stop()
+# ============================================================
+# PAGE 1 — UPLOAD
+# ============================================================
+if page == "Upload Data":
+    st.title("📥 Upload Dataset")
 
-df = pd.read_csv(uploaded_file)
+    file = st.file_uploader("Upload CSV File", type=["csv"])
 
-# ------------------------------------------------------
-# Dataset Preview
-# ------------------------------------------------------
-st.header("📁 Dataset Preview")
-st.dataframe(df.head())
+    if file:
+        df = pd.read_csv(file)
+        st.session_state["df"] = df
+        st.success("Dataset uploaded successfully!")
+        st.dataframe(df.head())
+    else:
+        st.info("Please upload a CSV file.")
 
-# Basic shape info
-st.write(f"**Rows:** {df.shape[0]}, **Columns:** {df.shape[1]}")
+if "df" not in st.session_state:
+    if page != "Upload Data":
+        st.error("Please upload a dataset first.")
+        st.stop()
 
-numerics = df.select_dtypes(include=['float64','int64']).columns.tolist()
-categoricals = df.select_dtypes(include=['object','category']).columns.tolist()
+df = st.session_state["df"].copy()
 
-# ------------------------------------------------------
-# Missing Values
-# ------------------------------------------------------
-st.header("❗ Missing Values")
-missing = df.isnull().sum()
-missing_df = missing[missing > 0]
+# ============================================================
+# AUTO FIX — Convert numeric-text to numeric
+# ============================================================
+for col in df.columns:
+    df[col] = df[col].astype(str).str.replace(",", "").str.strip()
+    df[col] = pd.to_numeric(df[col], errors="ignore")
 
-if missing_df.empty:
-    st.success("No missing values found.")
-else:
-    st.dataframe(missing_df)
+numerics = df.select_dtypes(include=['int64','float64']).columns.tolist()
+categoricals = df.select_dtypes(include=['object','category','bool']).columns.tolist()
 
-# ------------------------------------------------------
-# Summary Statistics
-# ------------------------------------------------------
-st.header("📊 Summary Statistics")
-if numerics:
-    st.subheader("Numeric Columns")
-    st.write(df[numerics].describe())
-else:
-    st.write("No numeric columns found.")
+# ============================================================
+# PAGE 2 — EDA
+# ============================================================
+if page == "EDA":
+    st.title("📊 Exploratory Data Analysis")
 
-# ------------------------------------------------------
-# Distribution Plot
-# ------------------------------------------------------
-if numerics:
-    st.header("📈 Distribution Plot")
-    col = st.selectbox("Choose a numeric column", numerics)
+    st.subheader("📁 Dataset Preview")
+    st.dataframe(df.head())
 
+    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
+
+    st.subheader("❗ Missing Values")
+    st.dataframe(df.isnull().sum())
+
+    st.subheader("📊 Summary Statistics")
+    if numerics:
+        st.write(df[numerics].describe())
+    else:
+        st.warning("No numeric columns found.")
+
+    if numerics:
+        st.subheader("📈 Distribution Plot")
+        col = st.selectbox("Select numeric column", numerics)
+        fig, ax = plt.subplots()
+        sns.histplot(df[col], kde=True, ax=ax)
+        st.pyplot(fig)
+
+    if categoricals:
+        st.subheader("📊 Categorical Plot")
+        cat = st.selectbox("Select categorical column", categoricals)
+        fig, ax = plt.subplots()
+        df[cat].value_counts().plot(kind="bar", ax=ax)
+        st.pyplot(fig)
+
+    st.subheader("🔥 Correlation Heatmap")
+    if len(numerics) >= 2:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.heatmap(df[numerics].corr(), annot=True, cmap="coolwarm")
+        st.pyplot(fig)
+    else:
+        st.warning("Need minimum 2 numeric columns for heatmap.")
+
+# ============================================================
+# PAGE 3 — OUTLIER DETECTION
+# ============================================================
+if page == "Outlier Detection":
+    st.title("🚨 Outlier Detection (IQR Method)")
+
+    if not numerics:
+        st.warning("No numeric columns available.")
+        st.stop()
+
+    col = st.selectbox("Select column", numerics)
+
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    lower = Q1 - 1.5 * IQR
+    upper = Q3 + 1.5 * IQR
+
+    st.write(f"Lower Bound: {lower}")
+    st.write(f"Upper Bound: {upper}")
+
+    outliers = df[(df[col] < lower) | (df[col] > upper)]
+    st.write(f"Total Outliers Found: {outliers.shape[0]}")
+    st.dataframe(outliers.head())
+
+    st.subheader("📦 Boxplot")
     fig, ax = plt.subplots()
-    sns.histplot(df[col], kde=True, ax=ax)
-    ax.set_title(f"Distribution of {col}")
+    sns.boxplot(x=df[col], ax=ax)
     st.pyplot(fig)
 
-# ------------------------------------------------------
-# Categorical Counts
-# ------------------------------------------------------
-if categoricals:
-    st.header("📊 Categorical Value Counts")
-    col_cat = st.selectbox("Choose a categorical column", categoricals)
+# ============================================================
+# PAGE 4 — ML MODEL
+# ============================================================
+if page == "ML Model":
+    st.title("🤖 Machine Learning Model")
 
-    fig, ax = plt.subplots()
-    df[col_cat].value_counts().plot(kind='bar', ax=ax)
-    ax.set_title(f"Value counts of {col_cat}")
-    st.pyplot(fig)
+    target = st.selectbox("Select target column", df.columns)
 
-# ------------------------------------------------------
-# Correlation Heatmap
-# ------------------------------------------------------
-st.header("🔥 Correlation Heatmap")
+    X = df.drop(columns=[target])
+    y = df[target]
 
-if len(numerics) >= 2:
-    corr = df[numerics].corr()
+    num_cols = X.select_dtypes(include=['float64', 'int64']).columns.tolist()
+    cat_cols = X.select_dtypes(include=['object','category','bool']).columns.tolist()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(corr, annot=True, cmap='coolwarm', ax=ax)
-    st.pyplot(fig)
-else:
-    st.info("Need at least 2 numeric columns to show correlation heatmap.")
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", SimpleImputer(strategy="median"), num_cols),
+            ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), cat_cols)
+        ]
+    )
 
-# ------------------------------------------------------
-# END
-# ------------------------------------------------------
-st.success("Dashboard Loaded Successfully!")
+    model_type = st.radio("Choose model type", ["Regression", "Classification"])
+
+    try:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2
+        )
+    except:
+        st.error("Your target column cannot be used for ML.")
+        st.stop()
+
+    # ---------------------- REGRESSION ----------------------
+    if model_type == "Regression":
+        if y.dtype == "object":
+            st.error("Target is categorical. Choose classification.")
+            st.stop()
+
+        model = RandomForestRegressor()
+
+        pipeline = Pipeline([
+            ("pre", preprocessor),
+            ("model", model)
+        ])
+
+        pipeline.fit(X_train, y_train)
+        preds = pipeline.predict(X_test)
+
+        st.subheader("📈 Regression Results")
+        st.write("R² Score:", r2_score(y_test, preds))
+        st.write("RMSE:", mean_squared_error(y_test, preds)**0.5)
+
+    # ---------------------- CLASSIFICATION ----------------------
+    else:
+        if y.dtype != "object":
+            st.error("Target is numeric. Choose regression.")
+            st.stop()
+
+        model = RandomForestClassifier()
+
+        pipeline = Pipeline([
+            ("pre", preprocessor),
+            ("model", model)
+        ])
+
+        pipeline.fit(X_train, y_train)
+        preds = pipeline.predict(X_test)
+
+        st.subheader("📈 Classification Results")
+        st.write("Accuracy:", accuracy_score(y_test, preds))
+
+        st.success("Model trained successfully!")
