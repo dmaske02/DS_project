@@ -1,6 +1,6 @@
-# ================================================
-#     FINAL STABLE STREAMLIT APP (NO ERRORS)
-# ================================================
+# ==============================================================
+#                 FINAL ERROR-FREE STREAMLIT APP
+# ==============================================================
 
 import streamlit as st
 import pandas as pd
@@ -16,51 +16,55 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
 
-# ------------------------------------------------
-# APP CONFIG
-# ------------------------------------------------
+# --------------------------------------------------------------
+# App Config
+# --------------------------------------------------------------
 st.set_page_config(page_title="Census Dashboard", layout="wide")
 
-# ------------------------------------------------
-# SIDEBAR NAVIGATION
-# ------------------------------------------------
+# --------------------------------------------------------------
+# Sidebar Navigation
+# --------------------------------------------------------------
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to:", ["Upload Data", "EDA", "Outlier Detection", "ML Model"])
+page = st.sidebar.radio(
+    "Go To Page",
+    ["Upload Data", "EDA", "Outlier Detection", "ML Model"]
+)
 
-# ------------------------------------------------
-# PAGE 1 - UPLOAD DATA
-# ------------------------------------------------
+# --------------------------------------------------------------
+# Page 1 — Upload Page
+# --------------------------------------------------------------
 if page == "Upload Data":
-    st.title("Upload Dataset")
+    st.title("📥 Upload Your Dataset")
+
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
         try:
             df = pd.read_csv(file)
             st.session_state["df"] = df
-            st.success("Dataset uploaded successfully!")
+            st.success("Dataset uploaded!")
             st.dataframe(df.head())
         except Exception as e:
-            st.error(f"Error reading CSV: {e}")
+            st.error(f"Unable to read CSV: {e}")
     else:
-        st.info("Upload a CSV to continue.")
+        st.info("Upload a CSV file to proceed.")
 
-# ------------------------------------------------
-# SAFELY LOAD df FOR ALL OTHER PAGES
-# ------------------------------------------------
+# --------------------------------------------------------------
+# Safe load df for all other pages
+# --------------------------------------------------------------
 df = st.session_state.get("df", None)
 
 if df is None and page != "Upload Data":
-    st.error("⚠ Please upload a dataset first.")
+    st.error("⚠ Please upload a dataset first from the 'Upload Data' page.")
     st.stop()
 
-# Make safe working copy only AFTER verifying df exists
+# Work on safe copy
 if df is not None:
     df = df.copy()
 
-# ------------------------------------------------
-# AUTO CONVERT numeric-like columns
-# ------------------------------------------------
+# --------------------------------------------------------------
+# AUTO CLEAN — Convert numeric-looking values
+# --------------------------------------------------------------
 if df is not None:
     for col in df.columns:
         try:
@@ -69,62 +73,96 @@ if df is not None:
         except:
             pass
 
-    numerics = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-    categoricals = df.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+    numerics = df.select_dtypes(include=['int64','float64']).columns.tolist()
+    categoricals = df.select_dtypes(include=['object','category','bool']).columns.tolist()
 
-# ------------------------------------------------
-# PAGE 2 - EDA
-# ------------------------------------------------
+# --------------------------------------------------------------
+# Page 2 — EDA
+# --------------------------------------------------------------
 if page == "EDA" and df is not None:
-    st.title("Exploratory Data Analysis")
+    st.title("📊 Exploratory Data Analysis")
 
-    st.subheader("Data Preview")
+    st.subheader("🔍 Dataset Preview")
     st.dataframe(df.head())
 
-    st.write(f"Rows: {df.shape[0]} | Columns: {df.shape[1]}")
+    st.write(f"**Rows:** {df.shape[0]} | **Columns:** {df.shape[1]}")
 
-    # Missing values
-    st.subheader("Missing Values")
-    st.dataframe(df.isnull().sum())
+    # --------------------------------------
+    # Missing Value Section (Safe)
+    # --------------------------------------
+    st.subheader("❗ Missing Values")
 
-    # Summary
-    st.subheader("Summary Statistics")
+    try:
+        mv = df.isnull().sum().reset_index()
+        mv.columns = ["Column", "Missing Count"]
+        st.dataframe(mv)
+    except Exception as e:
+        st.error(f"Unable to compute missing values: {e}")
+
+    # --------------------------------------
+    # Summary Statistics
+    # --------------------------------------
+    st.subheader("📊 Summary Statistics")
+
     if numerics:
         st.dataframe(df[numerics].describe().T)
     else:
-        st.warning("No numeric columns found.")
+        st.warning("No numeric columns detected.")
 
-    # Distribution
+    # --------------------------------------
+    # Distribution Plot
+    # --------------------------------------
     if numerics:
-        st.subheader("Distribution Plot")
-        col = st.selectbox("Choose numeric column", numerics)
+        st.subheader("📈 Distribution Plot")
+        col = st.selectbox("Select numeric column", numerics)
         fig, ax = plt.subplots()
         sns.histplot(df[col], kde=True, ax=ax)
         st.pyplot(fig)
 
-    # Categorical plot
+    # --------------------------------------
+    # Categorical Count Plot
+    # --------------------------------------
     if categoricals:
-        st.subheader("Categorical Value Counts")
-        cat = st.selectbox("Choose categorical", categoricals)
+        st.subheader("📊 Categorical Value Counts")
+        col = st.selectbox("Select categorical column", categoricals)
         fig, ax = plt.subplots()
-        df[cat].value_counts().plot(kind="bar", ax=ax)
+        df[col].value_counts(dropna=False).plot(kind="bar", ax=ax)
         st.pyplot(fig)
 
-    # Heatmap
-    st.subheader("Correlation Heatmap")
-    if len(numerics) >= 2:
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.heatmap(df[numerics].corr(), annot=True, cmap="coolwarm")
-        st.pyplot(fig)
+    # --------------------------------------
+    # SAFE HEATMAP (Auto-Clean)
+    # --------------------------------------
+    st.subheader("🔥 Correlation Heatmap (Auto Cleaned)")
 
-# ------------------------------------------------
-# PAGE 3 - OUTLIER DETECTION
-# ------------------------------------------------
+    numeric_df = pd.DataFrame()
+
+    # Build numeric_df safely
+    for col in df.columns:
+        try:
+            temp = pd.to_numeric(df[col], errors="coerce")
+            if temp.count() > 2:
+                numeric_df[col] = temp
+        except:
+            pass
+
+    if numeric_df.shape[1] < 2:
+        st.warning("Not enough numeric columns for a heatmap.")
+    else:
+        try:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.heatmap(numeric_df.corr(), annot=True, cmap="coolwarm", ax=ax)
+            st.pyplot(fig)
+        except Exception as e:
+            st.error(f"Heatmap error: {e}")
+
+# --------------------------------------------------------------
+# Page 3 — Outlier Detection
+# --------------------------------------------------------------
 if page == "Outlier Detection" and df is not None:
-    st.title("Outlier Detection")
+    st.title("🚨 Outlier Detection (IQR Method)")
 
     if not numerics:
-        st.warning("No numeric columns detected.")
+        st.warning("No numeric columns available.")
         st.stop()
 
     col = st.selectbox("Select Numeric Column", numerics)
@@ -132,6 +170,7 @@ if page == "Outlier Detection" and df is not None:
     Q1 = df[col].quantile(0.25)
     Q3 = df[col].quantile(0.75)
     IQR = Q3 - Q1
+
     lower = Q1 - 1.5 * IQR
     upper = Q3 + 1.5 * IQR
 
@@ -146,49 +185,58 @@ if page == "Outlier Detection" and df is not None:
     sns.boxplot(x=df[col], ax=ax)
     st.pyplot(fig)
 
-# ------------------------------------------------
-# PAGE 4 - ML MODEL
-# ------------------------------------------------
+# --------------------------------------------------------------
+# Page 4 — Machine Learning
+# --------------------------------------------------------------
 if page == "ML Model" and df is not None:
-    st.title("Machine Learning Model")
+    st.title("🤖 Machine Learning Model")
 
     target = st.selectbox("Select Target Column", df.columns)
 
     X = df.drop(columns=[target])
     y = df[target]
 
-    num_cols = X.select_dtypes(include=["int64","float64"]).columns.tolist()
-    cat_cols = X.select_dtypes(include=["object","category","bool"]).columns.tolist()
+    # detect column types
+    num_cols = X.select_dtypes(include=['int64','float64']).columns.tolist()
+    cat_cols = X.select_dtypes(include=['object','category','bool']).columns.tolist()
 
+    # Safe Preprocessor
     transformers = []
     if num_cols:
         transformers.append(("num", SimpleImputer(strategy="median"), num_cols))
 
     if cat_cols:
+        try:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+        except:
+            ohe = OneHotEncoder(handle_unknown="ignore", sparse=False)
+
         transformers.append((
             "cat",
             Pipeline([
                 ("imp", SimpleImputer(strategy="most_frequent")),
-                ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
+                ("ohe", ohe)
             ]),
             cat_cols
         ))
 
-    preprocessor = ColumnTransformer(transformers=transformers)
+    preprocessor = ColumnTransformer(transformers)
 
-    model_type = st.radio("Model Type", ["Regression", "Classification"])
+    model_type = st.radio("Select Model Type", ["Regression", "Classification"])
 
-    # Safe train/test split
+    # Train/Test Split
     try:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
     except Exception as e:
-        st.error(f"ML Error: {e}")
+        st.error(f"Train-test split error: {e}")
         st.stop()
 
+    # -----------------------
     # REGRESSION
+    # -----------------------
     if model_type == "Regression":
         if not pd.api.types.is_numeric_dtype(y):
-            st.error("Target must be numeric for regression.")
+            st.error("Target must be numeric for Regression.")
             st.stop()
 
         model = RandomForestRegressor()
@@ -198,13 +246,15 @@ if page == "ML Model" and df is not None:
         preds = pipe.predict(X_test)
 
         st.subheader("Regression Results")
-        st.write("R²:", r2_score(y_test, preds))
+        st.write("R² Score:", r2_score(y_test, preds))
         st.write("RMSE:", mean_squared_error(y_test, preds)**0.5)
 
+    # -----------------------
     # CLASSIFICATION
+    # -----------------------
     else:
         if pd.api.types.is_numeric_dtype(y):
-            st.error("Target must be categorical for classification.")
+            st.error("Target must be categorical for Classification.")
             st.stop()
 
         model = RandomForestClassifier()
